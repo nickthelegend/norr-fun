@@ -2,7 +2,8 @@ import { ethers } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 import { decryptPCT } from "../../test/helpers";
-import { getWallet, deriveKeysFromUser, decryptEGCTBalance } from "../../src/utils";
+import { getWallet, deriveKeysFromUser, decryptEGCTBalanceWithFormattedKey } from "../../src/utils";
+import { formatDecryptionKey } from "../../src/utils/keyDerivation";
 import { mulPointEscalar, Base8 } from "@zk-kit/baby-jubjub";
 import { formatPrivKeyForBabyJub } from "maci-crypto";
 const main = async () => {
@@ -52,7 +53,9 @@ const main = async () => {
             
             if (keysData.userAddress === userAddress && keysData.keysMatch) {
                 userPrivateKey = BigInt(keysData.privateKey);
-                formattedPrivateKey = formatPrivKeyForBabyJub(userPrivateKey);
+                // Format with the SDK's scheme, not maci's -- a cached key must
+                // still produce the scalar the browser would.
+                formattedPrivateKey = formatDecryptionKey(userPrivateKey.toString(16));
                 signature = keysData.signature;
                 console.log("✅ Keys loaded from file");
             } else {
@@ -162,7 +165,7 @@ const main = async () => {
         console.log("  - EGCT C1:", [c1[0].toString(), c1[1].toString()]);
         console.log("  - EGCT C2:", [c2[0].toString(), c2[1].toString()]);
         
-        const egctBalance = decryptEGCTBalance(userPrivateKey, c1, c2);
+        const egctBalance = decryptEGCTBalanceWithFormattedKey(formattedPrivateKey, c1, c2);
         console.log("💰 EGCT Balance (raw):", egctBalance.toString());
         
         // Convert to display units (encrypted system uses 2 decimals)

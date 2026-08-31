@@ -2,7 +2,7 @@ import { ethers } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 import { privateTransfer } from "../../test/helpers";
-import { i0, decryptEGCTBalance, createUserFromPrivateKey, getWallet } from "../../src/utils";
+import { createUserFromSignature, decryptEGCTBalanceWithFormattedKey, getWallet } from "../../src/utils";
 
 const main = async () => {
     // Configure which wallets to use: 1 for first signer (sender), 2 for second signer (receiver)
@@ -54,7 +54,6 @@ const main = async () => {
         console.log("✅ Both sender and receiver are registered");
         
         // Load or generate sender's keys
-        let senderPrivateKey: bigint;
         let signature: string;
         
         const keysPath = path.join(__dirname, "../../deployments/standalone/user-keys.json");
@@ -63,7 +62,6 @@ const main = async () => {
             const keysData = JSON.parse(fs.readFileSync(keysPath, "utf8"));
             
             if (keysData.address === senderAddress) {
-                senderPrivateKey = BigInt(keysData.privateKey.raw);
                 console.log("✅ Sender keys loaded from file");
             } else {
                 console.log("⚠️  Saved keys mismatch, generating new signature...");
@@ -71,7 +69,6 @@ const main = async () => {
 Registering user with
  Address:${senderAddress.toLowerCase()}`;
                 signature = await wallet.signMessage(message);
-                senderPrivateKey = i0(signature);
             }
         } else {
             console.log("🔐 Generating signature for sender...");
@@ -79,11 +76,10 @@ Registering user with
 Registering user with
  Address:${senderAddress.toLowerCase()}`;
             signature = await wallet.signMessage(message);
-            senderPrivateKey = i0(signature);
         }
         
         // Create sender User object
-        const sender = createUserFromPrivateKey(senderPrivateKey, wallet);
+        const sender = createUserFromSignature(signature, wallet);
         
         // Get public keys from registrar
         const senderPublicKey = await registrar.getUserPublicKey(senderAddress);
@@ -123,7 +119,7 @@ Registering user with
             return;
         }
         
-        const senderCurrentBalance = decryptEGCTBalance(senderPrivateKey, c1, c2);
+        const senderCurrentBalance = decryptEGCTBalanceWithFormattedKey(sender.formattedPrivateKey, c1, c2);
         const tokenDecimals = await encryptedERC.decimals();
         
         console.log(`💰 Sender's current balance: ${ethers.formatUnits(senderCurrentBalance, tokenDecimals)} PRIV`);
@@ -185,7 +181,7 @@ Registering user with
         const [newEGCT] = await encryptedERC.balanceOf(senderAddress, tokenId);
         const newC1: [bigint, bigint] = [BigInt(newEGCT.c1.x.toString()), BigInt(newEGCT.c1.y.toString())];
         const newC2: [bigint, bigint] = [BigInt(newEGCT.c2.x.toString()), BigInt(newEGCT.c2.y.toString())];
-        const senderNewBalance = decryptEGCTBalance(senderPrivateKey, newC1, newC2);
+        const senderNewBalance = decryptEGCTBalanceWithFormattedKey(sender.formattedPrivateKey, newC1, newC2);
         
         console.log(`💰 Sender's new balance: ${ethers.formatUnits(senderNewBalance, tokenDecimals)} PRIV`);
         console.log(`📤 Amount transferred: ${ethers.formatUnits(transferAmount, tokenDecimals)} PRIV`);

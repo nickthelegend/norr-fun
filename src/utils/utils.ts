@@ -1,15 +1,28 @@
 import { Base8, mulPointEscalar, subOrder } from "@zk-kit/baby-jubjub";
+import {
+    deriveDecryptionKey,
+    deriveFormattedPrivateKey,
+    formatDecryptionKey,
+    registerMessage,
+} from "./keyDerivation";
 import { formatPrivKeyForBabyJub } from "maci-crypto";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { ethers } from "hardhat";
-import { decryptPoint } from "../jub/jub";
+import { decryptPoint, decryptPointWithFormattedKey } from "../jub/jub";
 import { decryptPCT } from "../../test/helpers";
 import { User } from "../../test/user";
 import * as fs from "fs";
 import * as path from "path";
 
 /**
- * Derives a private key from a signature using the i0 function
+ * Derives a private key from a signature using the legacy i0 function.
+ *
+ * @deprecated Does NOT agree with `@avalabs/eerc-sdk`, so a key derived here
+ * cannot read a balance registered in the browser, or vice versa. Retained only
+ * so accounts registered under the old scheme can still be identified during
+ * migration. Use `deriveFormattedPrivateKey` from `./keyDerivation` for anything
+ * new -- see `test/KeyDerivation.test.ts`.
+ *
  * @param signature The signature hex string
  * @returns The derived private key as bigint
  */
@@ -45,10 +58,9 @@ export async function deriveKeysFromUser(userAddress: string, wallet: any): Prom
     publicKey: [bigint, bigint];
     signature: string;
 }> {
-    // Create deterministic message for signing
-    const message = `eERC
-Registering user with
- Address:${userAddress.toLowerCase()}`;
+    // Create deterministic message for signing -- shared with the SDK so the
+    // browser and these scripts sign byte-identical text.
+    const message = registerMessage(userAddress);
     
     console.log('📝 Message to sign for balance:', message);
     
@@ -58,13 +70,16 @@ Registering user with
         throw new Error("Invalid signature received from user");
     }
     
-    // Derive private key from signature deterministically
+    // Derive the decryption key exactly as @avalabs/eerc-sdk does, so an account
+    // registered here can read its own balance in the browser and vice versa.
     console.log("🔑 Deriving private key from signature...");
-    const privateKey = i0(signature);
+    const decryptionKey = deriveDecryptionKey(signature);
+    const privateKey = BigInt(`0x${decryptionKey}`);
     console.log("Private key (raw):", privateKey.toString());
-    
-    // Format private key for BabyJubJub
-    const formattedPrivateKey = formatPrivKeyForBabyJub(privateKey) % subOrder;
+
+    // Format for BabyJubJub (SDK's `I`), NOT maci's formatPrivKeyForBabyJub --
+    // the two disagree, and the SDK's is what the on-chain public keys encode.
+    const formattedPrivateKey = formatDecryptionKey(decryptionKey);
     console.log("Private key (formatted):", formattedPrivateKey.toString());
     
     // Generate public key using BabyJubJub
@@ -86,6 +101,35 @@ Registering user with
  * @param c1 First component of the encrypted balance
  * @param c2 Second component of the encrypted balance
  * @returns The decrypted balance as bigint
+ */
+/**
+ * Decrypt an eERC balance using an already-formatted scalar.
+ *
+ * Use this with `user.formattedPrivateKey` from `createUserFromSignature`: the
+ * SDK derives that scalar with blake512, so it must NOT be run through maci's
+ * formatter again on the way in.
+ */
+export function decryptEGCTBalanceWithFormattedKey(
+    formattedPrivateKey: bigint,
+    c1: [bigint, bigint],
+    c2: [bigint, bigint],
+): bigint {
+    try {
+        const decryptedPoint = decryptPointWithFormattedKey(formattedPrivateKey, c1, c2);
+        const result = findDiscreteLogOptimized([decryptedPoint[0], decryptedPoint[1]]);
+        if (result !== null) return result;
+
+        console.log("⚠️  Could not find discrete log for decrypted point:", decryptedPoint);
+        return 0n;
+    } catch (error) {
+        console.log("⚠️  Error decrypting EGCT:", error);
+        return 0n;
+    }
+}
+
+/**
+ * @deprecated for eERC accounts -- applies maci formatting internally, which
+ * disagrees with the SDK. Use `decryptEGCTBalanceWithFormattedKey`.
  */
 export function decryptEGCTBalance(privateKey: bigint, c1: [bigint, bigint], c2: [bigint, bigint]): bigint {
     try {
@@ -304,6 +348,30 @@ export async function getDecryptedBalance(
  * @param privateKey The private key to use for the user
  * @param signer The signer instance to associate with the user
  * @returns User object with overridden keys
+ */
+/**
+ * Creates a User from a registration signature, using the canonical
+ * (SDK-compatible) derivation.
+ *
+ * Prefer this over `createUserFromPrivateKey`: it formats the scalar the way
+ * the SDK does, so `user.formattedPrivateKey` -- which drives both the public
+ * key and `genRegistrationHash` -- matches what the browser would produce for
+ * the same signature.
+ */
+export function createUserFromSignature(signature: string, signer: any): User {
+    const user = new User(signer);
+    const decryptionKey = deriveDecryptionKey(signature);
+
+    user.privateKey = BigInt(`0x${decryptionKey}`);
+    user.formattedPrivateKey = formatDecryptionKey(decryptionKey);
+    user.publicKey = mulPointEscalar(Base8, user.formattedPrivateKey).map((x) => BigInt(x));
+
+    return user;
+}
+
+/**
+ * @deprecated Applies maci's `formatPrivKeyForBabyJub`, which disagrees with the
+ * SDK's formatting. Use `createUserFromSignature` so keys match the browser.
  */
 export function createUserFromPrivateKey(privateKey: bigint, signer: any): User {
     // Create a new user instance

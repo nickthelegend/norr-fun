@@ -2,7 +2,7 @@ import { ethers } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 import { withdraw } from "../../test/helpers";
-import { i0, decryptEGCTBalance, createUserFromPrivateKey, getWallet } from "../../src/utils";
+import { createUserFromSignature, decryptEGCTBalanceWithFormattedKey, getWallet } from "../../src/utils";
 import { formatPrivKeyForBabyJub } from "maci-crypto";
 import { mulPointEscalar, Base8 } from "@zk-kit/baby-jubjub";
 
@@ -51,7 +51,6 @@ const main = async () => {
         console.log("✅ User is registered");
         
         // Load or generate user's keys
-        let userPrivateKey: bigint;
         let signature: string;
         
         const keysPath = path.join(__dirname, "../../deployments/converter/user-keys.json");
@@ -60,7 +59,6 @@ const main = async () => {
             const keysData = JSON.parse(fs.readFileSync(keysPath, "utf8"));
             
             if (keysData.userAddress === userAddress && keysData.keysMatch) {
-                userPrivateKey = BigInt(keysData.privateKey);
                 signature = keysData.signature;
                 console.log("✅ Keys loaded from file");
             } else {
@@ -69,7 +67,6 @@ const main = async () => {
 Registering user with
  Address:${userAddress.toLowerCase()}`;
                 signature = await wallet.signMessage(message);
-                userPrivateKey = i0(signature);
             }
         } else {
             console.log("🔐 Generating signature for withdrawal...");
@@ -77,11 +74,10 @@ Registering user with
 Registering user with
  Address:${userAddress.toLowerCase()}`;
             signature = await wallet.signMessage(message);
-            userPrivateKey = i0(signature);
         }
         
         // Create user object for proof generation
-        const user = createUserFromPrivateKey(userPrivateKey, wallet);
+        const user = createUserFromSignature(signature, wallet);
         
         // Get public keys
         const userPublicKey = await registrar.getUserPublicKey(userAddress);
@@ -126,7 +122,7 @@ Registering user with
             return;
         }
         
-        const userCurrentBalance = decryptEGCTBalance(userPrivateKey, c1, c2);
+        const userCurrentBalance = decryptEGCTBalanceWithFormattedKey(user.formattedPrivateKey, c1, c2);
         const encryptedSystemDecimals = 2;
         
         console.log(`💰 Current encrypted balance: ${ethers.formatUnits(userCurrentBalance, encryptedSystemDecimals)} encrypted units`);
@@ -200,7 +196,7 @@ Registering user with
         let newEncryptedBalance = 0n;
         const isNewEGCTEmpty = newC1[0] === 0n && newC1[1] === 0n && newC2[0] === 0n && newC2[1] === 0n;
         if (!isNewEGCTEmpty) {
-            newEncryptedBalance = decryptEGCTBalance(userPrivateKey, newC1, newC2);
+            newEncryptedBalance = decryptEGCTBalanceWithFormattedKey(user.formattedPrivateKey, newC1, newC2);
         }
         
         // Get new public token balance

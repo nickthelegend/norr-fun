@@ -2,7 +2,7 @@ import { ethers } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 import { decryptPCT } from "../../test/helpers";
-import { getWallet, deriveKeysFromUser, decryptEGCTBalance } from "../../src/utils";
+import { getWallet, deriveKeysFromUser, decryptEGCTBalanceWithFormattedKey } from "../../src/utils";
 
 const main = async () => {
     // Which signer to act as. The env var is the documented control -- this used
@@ -90,7 +90,7 @@ const main = async () => {
         
         if (!isEGCTEmpty) {
             // Try EGCT decryption first (works for balances up to 1000 PRIV/100000 raw units)
-            userCurrentBalance = decryptEGCTBalance(userPrivateKey, c1, c2);
+            userCurrentBalance = decryptEGCTBalanceWithFormattedKey(formattedPrivateKey, c1, c2);
             console.log("🔐 EGCT decryption result:", userCurrentBalance.toString());
             if (userCurrentBalance > 0n) {
                 balanceSource = "EGCT";
